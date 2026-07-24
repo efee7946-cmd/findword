@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.vercel/
+site_cache.json
+adoption_raporu.csv

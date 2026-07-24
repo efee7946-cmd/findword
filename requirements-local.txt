@@ -1,0 +1,9 @@
+# Full local setup: CLI tool (word_counter.py) + local web app (webapp.py)
+# with browser rendering for JavaScript-heavy (SPA) sites.
+#   pip install -r requirements-local.txt
+#   python -m playwright install chromium
+flask
+requests
+beautifulsoup4
+lxml
+playwright
