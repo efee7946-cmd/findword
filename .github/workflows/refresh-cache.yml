@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -46,7 +48,18 @@ jobs:
           git add cache/
           if git diff --cached --quiet; then
             echo "Cache unchanged — nothing to commit."
-          else
-            git commit -m "Refresh site cache [automated]"
-            git push
+            exit 0
           fi
+          git commit -m "Refresh site cache [automated]"
+          # main can move ahead while we crawl; rebase onto it and retry the
+          # push so a concurrent commit doesn't reject the automated update.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt) — rebasing onto latest ${GITHUB_REF_NAME}…"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
+          echo "Failed to push cache update after 5 attempts." >&2
+          exit 1
