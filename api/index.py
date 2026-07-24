@@ -26,9 +26,9 @@ TMP_DIR = Path("/tmp/findword_cache")
 # Pre-indexed sites are refreshed by a GitHub Actions workflow that
 # re-crawls with a real browser and commits the new cache (which
 # auto-deploys). Triggering it needs a token with Actions write access.
-GH_REPO = os.environ.get("GH_REPO", "efee7946-cmd/findword")
-GH_WORKFLOW = os.environ.get("GH_WORKFLOW", "refresh-cache.yml")
-GH_PAT = os.environ.get("GH_PAT")
+GH_REPO = (os.environ.get("GH_REPO") or "efee7946-cmd/findword").strip()
+GH_WORKFLOW = (os.environ.get("GH_WORKFLOW") or "refresh-cache.yml").strip()
+GH_PAT = (os.environ.get("GH_PAT") or "").strip() or None
 
 # Live-scan budget (must fit the serverless maxDuration)
 SCAN_MAX_PAGES = 30
