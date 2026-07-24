@@ -20,6 +20,20 @@ Vercel serverless function.
   locally instead (see below) and commit the resulting
   `cache/<domain>.json`.
 
+## Keeping the data fresh
+
+- The **Refresh data** button in the UI re-indexes the current site.
+  Static sites are re-scanned instantly; pre-indexed sites are handed
+  off to the GitHub Actions workflow below and go live in ~5-10 minutes.
+- [.github/workflows/refresh-cache.yml](.github/workflows/refresh-cache.yml)
+  re-crawls a site with headless Chromium (works for SPA sites), commits
+  the updated `cache/<domain>.json`, and the push auto-deploys to
+  Vercel. It runs nightly (03:00 UTC), on manual dispatch, and when
+  triggered by the Refresh button.
+- For the Refresh button to trigger the workflow, the Vercel project
+  needs a `GH_PAT` environment variable: a fine-grained GitHub token for
+  this repo with **Actions: Read and write** permission.
+
 ## Local tools
 
 Install: `pip install -r requirements-local.txt` then

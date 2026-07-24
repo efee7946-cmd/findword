@@ -7,6 +7,7 @@ scanned here and must be pre-indexed locally (see webapp.py).
 """
 
 import json
+import os
 import re
 import time
 from collections import Counter
@@ -21,6 +22,13 @@ from flask import Flask, jsonify, render_template_string, request
 DEFAULT_SITE = "https://www.aibusinessschool.com"
 BUNDLED_DIR = Path(__file__).resolve().parent.parent / "cache"
 TMP_DIR = Path("/tmp/findword_cache")
+
+# Pre-indexed sites are refreshed by a GitHub Actions workflow that
+# re-crawls with a real browser and commits the new cache (which
+# auto-deploys). Triggering it needs a token with Actions write access.
+GH_REPO = os.environ.get("GH_REPO", "efee7946-cmd/findword")
+GH_WORKFLOW = os.environ.get("GH_WORKFLOW", "refresh-cache.yml")
+GH_PAT = os.environ.get("GH_PAT")
 
 # Live-scan budget (must fit the serverless maxDuration)
 SCAN_MAX_PAGES = 30
@@ -210,6 +218,46 @@ def api_scan():
                     "crawled_at": crawled_at, "source": "live scan"})
 
 
+@app.post("/api/refresh")
+def api_refresh():
+    key, start_url = resolve_site(request.args.get("site"))
+    if not key:
+        return jsonify({"error": "Invalid site URL."}), 400
+
+    if (BUNDLED_DIR / cache_filename(key)).exists():
+        # Pre-indexed site: hand off to the GitHub Actions re-index workflow
+        if not GH_PAT:
+            return jsonify({"error": "Background refresh is not configured "
+                                     "yet (GH_PAT is missing)."}), 503
+        r = requests.post(
+            f"https://api.github.com/repos/{GH_REPO}/actions/workflows/"
+            f"{GH_WORKFLOW}/dispatches",
+            json={"ref": "main", "inputs": {"site": start_url}},
+            headers={"Authorization": f"Bearer {GH_PAT}",
+                     "Accept": "application/vnd.github+json"},
+            timeout=15)
+        if r.status_code != 204:
+            return jsonify({"error": f"Could not start the refresh job "
+                                     f"(GitHub returned {r.status_code})."}), 502
+        return jsonify({"status": "refreshing",
+                        "message": "Re-indexing started in the background. "
+                                   "Fresh data goes live automatically in "
+                                   "about 5-10 minutes."})
+
+    # Live-scannable site: re-scan right now
+    try:
+        pages = scan_site(start_url)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 422
+    crawled_at = datetime.utcnow().strftime("%d.%m.%Y %H:%M UTC")
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    (TMP_DIR / cache_filename(key)).write_text(
+        json.dumps({"crawled_at": crawled_at, "pages": pages}, ensure_ascii=False),
+        encoding="utf-8")
+    return jsonify({"status": "ready", "page_count": len(pages),
+                    "crawled_at": crawled_at, "source": "live scan"})
+
+
 @app.get("/api/count")
 def api_count():
     key, _ = resolve_site(request.args.get("site"))
@@ -276,6 +324,8 @@ PAGE = """<!doctype html>
   button { padding:.65rem 1.2rem; font-size:1rem; border:none; border-radius:8px;
            background:var(--accent); color:#fff; cursor:pointer; }
   button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:transparent; color:var(--accent);
+                 border:1px solid var(--accent); }
   .opt { display:flex; align-items:center; gap:.4rem; font-size:.85rem;
          color:var(--muted); margin-top:.6rem; }
   .meta { font-size:.82rem; color:var(--muted); margin-top:.8rem; }
@@ -316,6 +366,7 @@ PAGE = """<!doctype html>
         </label>
         <div class="actions">
           <button type="submit" id="btn">Count</button>
+          <button type="button" class="ghost" id="refreshBtn">Refresh data</button>
         </div>
       </div>
     </form>
@@ -326,7 +377,9 @@ PAGE = """<!doctype html>
     <div class="meta"><span id="status" class="status"></span></div>
     <div class="note">Counting is case-insensitive. New sites are scanned on first
       search (static sites only, up to {{ max_pages }} pages);
-      aibusinessschool.com is pre-indexed in full.</div>
+      aibusinessschool.com is pre-indexed in full and refreshed nightly.
+      "Refresh data" re-indexes the current site: static sites update
+      instantly, pre-indexed sites within ~5-10 minutes.</div>
   </div>
 
   <div class="card hidden" id="result">
@@ -408,6 +461,28 @@ $('f').addEventListener('submit', async ev => {
     setError('Request failed: ' + e.message);
   } finally {
     $('btn').disabled = false;
+  }
+});
+
+$('refreshBtn').addEventListener('click', async () => {
+  if (!siteValue()) return;
+  $('refreshBtn').disabled = true;
+  setStatus('<span class="spin"></span> Refreshing site data...');
+  try {
+    const r = await fetch('/api/refresh?site=' + encodeURIComponent(siteValue()),
+                          {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) { setError(d.error); return; }
+    if (d.status === 'refreshing') {
+      setStatus(esc(d.message));
+    } else {
+      setStatus(d.page_count + ' pages indexed (' + (d.source || '') +
+                ') · Last scan: ' + (d.crawled_at || '-'));
+    }
+  } catch (e) {
+    setError('Request failed: ' + e.message);
+  } finally {
+    $('refreshBtn').disabled = false;
   }
 });
 

@@ -3,3 +3,5 @@ __pycache__/
 .vercel/
 site_cache.json
 adoption_raporu.csv
+
+.vercel

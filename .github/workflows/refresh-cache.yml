@@ -1,0 +1,52 @@
+name: Refresh site cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: Site URL to re-index
+        required: false
+        default: https://www.aibusinessschool.com
+  schedule:
+    - cron: "0 3 * * *"   # nightly safety net (03:00 UTC)
+  push:
+    paths:
+      - ".github/workflows/refresh-cache.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-cache
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-local.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Re-index site
+        run: python refresh_cache.py "${{ github.event.inputs.site || 'https://www.aibusinessschool.com' }}"
+
+      - name: Commit updated cache
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cache/
+          if git diff --cached --quiet; then
+            echo "Cache unchanged — nothing to commit."
+          else
+            git commit -m "Refresh site cache [automated]"
+            git push
+          fi
